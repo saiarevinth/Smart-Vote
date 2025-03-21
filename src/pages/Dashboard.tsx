@@ -4,7 +4,6 @@ import { doc, getDoc } from 'firebase/firestore';
 import Navbar from '../components/Navbar';
 import PartyCard from '../components/PartyCard';
 import { VoteCard } from '../components/VoteCard';
-import { VoteStats } from '../components/VoteStats';
 import { parties } from '../types/party';
 import { CLOUDINARY_CONFIG } from '../config/cloudinary';
 import { UserCircle, LogOut, Image as ImageIcon, XCircle } from 'lucide-react';
@@ -171,9 +170,6 @@ const Dashboard = () => {
           </div> */}
 
           {/* Voting Statistics Sidebar */}
-          <div className="lg:col-span-1">
-            <VoteStats />
-          </div>
         </div>
       </main>
     </div>

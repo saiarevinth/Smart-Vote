@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+
+interface UserData {
+  mobile: string;
+  isVerified: boolean;
+}
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -16,25 +21,52 @@ const Login = () => {
     setLoading(true);
 
     try {
-      // Sign in with Firebase Auth
+      // First, authenticate with email/password
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Then fetch user data
+      const userQuery = await getDocs(
+        query(collection(db, 'voters'), where('email', '==', email))
+      );
 
-      // Check user verification status
-      const userDoc = await getDoc(doc(db, 'voters', userCredential.user.uid));
-      const userData = userDoc.data();
-
-      if (!userData?.isVerified) {
-        // Sign out if not verified
+      if (userQuery.empty) {
         await auth.signOut();
-        toast.error('Your account is pending verification. Please wait for admin approval.');
-        return;
+        throw new Error('User not found');
+      }
+      
+      const userData = userQuery.docs[0].data() as UserData;
+      
+      if (!userData?.isVerified) {
+        await auth.signOut();
+        throw new Error('Account pending verification');
       }
 
-      toast.success('Login successful!');
-      navigate('/dashboard');
+      if (!userData?.mobile) {
+        await auth.signOut();
+        throw new Error('Mobile number not found. Please contact support.');
+      }
+
+      // Redirect to OTP verification with mobile number
+      navigate('/verify-otp', { 
+        state: { mobile: userData.mobile },
+        replace: true // Replace the current history entry
+      });
+      
     } catch (error: any) {
       console.error('Login error:', error);
-      toast.error(error.message || 'Login failed');
+      let errorMessage = 'Login failed. Please check your credentials.';
+      
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -43,9 +75,7 @@ const Login = () => {
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="text-center text-3xl font-bold text-gray-900">
-          Sign in to your account
-        </h2>
+        <h2 className="text-center text-3xl font-bold text-gray-900">Sign in</h2>
         <p className="mt-2 text-center text-sm text-gray-600">
           Or{' '}
           <Link to="/signup" className="font-medium text-orange-600 hover:text-orange-500">
@@ -99,7 +129,7 @@ const Login = () => {
                 disabled={loading}
                 className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50"
               >
-                {loading ? 'Signing in...' : 'Sign in'}
+                {loading ? 'Processing...' : 'Continue'}
               </button>
             </div>
           </form>

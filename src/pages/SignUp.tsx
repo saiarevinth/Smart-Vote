@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { CLOUDINARY_CONFIG } from '../config/cloudinary';
 import toast from 'react-hot-toast';
@@ -21,8 +21,8 @@ interface FormData {
   state: string;
   mobile: string;
   email: string;
-  aadharNumber: string;
-  aadharImage?: File;
+  VoterNumber: string;
+  VoterImage?: File;
 }
 
 const SignUp = () => {
@@ -40,11 +40,11 @@ const SignUp = () => {
     state: '',
     mobile: '',
     email: '',
-    aadharNumber: ''
+    VoterNumber: ''
   });
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
-  const [aadharPreview, setAadharPreview] = useState<string | null>(null);
+  const [VoterPreview, setVoterPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -165,13 +165,13 @@ const SignUp = () => {
         const compressedImage = await compressImage(file);
         setFormData(prev => ({
           ...prev,
-          aadharImage: compressedImage
+          VoterImage: compressedImage
         }));
         
         // Show preview
         const reader = new FileReader();
         reader.onloadend = () => {
-          setAadharPreview(reader.result as string);
+          setVoterPreview(reader.result as string);
         };
         reader.readAsDataURL(compressedImage);
         
@@ -179,9 +179,9 @@ const SignUp = () => {
           toast.error('Image is still too large. Please try a smaller image.');
           setFormData(prev => ({
             ...prev,
-            aadharImage: undefined
+            VoterImage: undefined
           }));
-          setAadharPreview(null);
+          setVoterPreview(null);
           return;
         }
       } catch (error) {
@@ -192,7 +192,7 @@ const SignUp = () => {
   };
 
   const validateForm = () => {
-    if (!formData.username || !formData.password || !formData.fullName || !formData.dateOfBirth || !formData.gender || !formData.guardianName || !formData.maritalStatus || !formData.address || !formData.pincode || !formData.district || !formData.state || !formData.mobile || !formData.email || !formData.aadharNumber || !formData.aadharImage) {
+    if (!formData.username || !formData.password || !formData.fullName || !formData.dateOfBirth || !formData.gender || !formData.guardianName || !formData.maritalStatus || !formData.address || !formData.pincode || !formData.district || !formData.state || !formData.mobile || !formData.email || !formData.VoterNumber || !formData.VoterImage) {
       setError('All fields are required');
       return false;
     }
@@ -202,8 +202,8 @@ const SignUp = () => {
       return false;
     }
 
-    if (formData.aadharNumber.length !== 12 || !/^\d+$/.test(formData.aadharNumber)) {
-      setError('Please enter a valid 12-digit Aadhar number');
+    if (formData.VoterNumber.length !== 12 || !/^\d+$/.test(formData.VoterNumber)) {
+      setError('Please enter a valid 12-digit Voter number');
       return false;
     }
 
@@ -227,7 +227,7 @@ const SignUp = () => {
       setLoading(true);
 
       // Upload image to Cloudinary first
-      const aadharImageUrl = await uploadToCloudinary(formData.aadharImage as File);
+      const VoterImageUrl = await uploadToCloudinary(formData.VoterImage as File);
 
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
@@ -235,6 +235,11 @@ const SignUp = () => {
         formData.email,
         formData.password
       );
+
+      // Send email verification
+      await sendEmailVerification(userCredential.user, {
+        url: window.location.origin + '/login', // Redirect URL after verification
+      });
 
       // Save user data in Firestore
       await setDoc(doc(db, 'voters', userCredential.user.uid), {
@@ -251,15 +256,18 @@ const SignUp = () => {
         state: formData.state,
         mobile: formData.mobile,
         email: formData.email,
-        aadharNumber: formData.aadharNumber,
-        aadharImageUrl: aadharImageUrl,
+        VoterNumber: formData.VoterNumber,
+        VoterImageUrl: VoterImageUrl,
         isVerified: false,
+        emailVerified: false,
         hasVoted: false,
         createdAt: new Date().toISOString()
       });
 
-      toast.success('Registration successful! Please wait for admin verification.');
-      navigate('/login');
+      toast.success(
+        'Registration successful! Please check your email for verification link.'
+      );
+      navigate('/verification-pending');
     } catch (error: any) {
       console.error('Error during signup:', error);
       setError('Failed to create account. Please try again.');
@@ -450,39 +458,39 @@ const SignUp = () => {
             </div>
           </div>
 
-          {/* Aadhar Details */}
+          {/* Voter Details */}
           <div className="bg-gray-50 p-4 rounded-lg space-y-4">
-            <h3 className="text-xl font-semibold text-gray-900">Aadhar Details</h3>
+            <h3 className="text-xl font-semibold text-gray-900">Voter Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Aadhar Number</label>
+                <label className="block text-sm font-medium text-gray-700">Voter Number</label>
                 <input
                   type="text"
-                  name="aadharNumber"
-                  value={formData.aadharNumber}
+                  name="VoterNumber"
+                  value={formData.VoterNumber}
                   onChange={handleInputChange}
                   maxLength={12}
                   pattern="[0-9]{12}"
-                  placeholder="Enter 12-digit Aadhar number"
+                  placeholder="Enter 12-digit Voter number"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Upload Aadhar Card</label>
+                <label className="block text-sm font-medium text-gray-700">Upload Voter Card</label>
                 <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                   <div className="space-y-1 text-center">
-                    {aadharPreview ? (
+                    {VoterPreview ? (
                       <div className="relative">
                         <img
-                          src={aadharPreview}
-                          alt="Aadhar preview"
+                          src={VoterPreview}
+                          alt="Voter preview"
                           className="mx-auto h-32 object-cover rounded"
                         />
                         <button
                           type="button"
                           onClick={() => {
-                            setAadharPreview('');
-                            setFormData(prev => ({ ...prev, aadharImage: undefined }));
+                            setVoterPreview('');
+                            setFormData(prev => ({ ...prev, VoterImage: undefined }));
                             if (fileInputRef.current) {
                               fileInputRef.current.value = '';
                             }
@@ -497,13 +505,13 @@ const SignUp = () => {
                         <ImagePlus className="mx-auto h-12 w-12 text-gray-400" />
                         <div className="flex text-sm text-gray-600">
                           <label
-                            htmlFor="aadharImage"
+                            htmlFor="VoterImage"
                             className="relative cursor-pointer bg-white rounded-md font-medium text-orange-600 hover:text-orange-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-orange-500"
                           >
                             <span>Upload a file</span>
                             <input
-                              id="aadharImage"
-                              name="aadharImage"
+                              id="VoterImage"
+                              name="VoterImage"
                               type="file"
                               ref={fileInputRef}
                               accept="image/*"

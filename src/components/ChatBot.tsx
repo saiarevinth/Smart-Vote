@@ -1,185 +1,184 @@
 import { useState, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { MessageSquare, Send, Loader2 } from 'lucide-react';
-import { API_KEY, API_URL, MODEL } from '../config/gemini';
+import { ChatMessage, ChatState } from '../types/chat';
+import { generateResponse } from '../services/cohere';
+import { Send, Loader2, AlertCircle, Info } from 'lucide-react';
+import toast from 'react-hot-toast';
 
-// Political context for the AI
-const POLITICAL_CONTEXT = `
-You are a specialized political advisor chatbot for a Smart Voting System. Your expertise includes:
-1. Electoral processes and voting procedures
-2. Political party information and ideologies
-3. Democratic systems and governance
-4. Current political landscape
-5. Voter rights and responsibilities
-
-When responding:
-- Focus on factual, non-partisan information
-- Avoid showing bias towards any political party
-- Provide clear, concise explanations
-- Include relevant statistics or data when appropriate
-- Emphasize the importance of informed voting
-
-Important: Keep responses focused on democratic processes and avoid any controversial political statements.
-`;
-
-interface Message {
-  role: 'user' | 'bot';
-  content: string;
-}
+const MAX_MESSAGES = 10; // Increased limit for Hugging Face model
 
 const ChatBot = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [chatState, setChatState] = useState<ChatState>({
+    messages: [],
+    isLoading: false,
+    error: null,
+  });
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initial bot message
-  useEffect(() => {
-    setMessages([
-      {
-        role: 'bot',
-        content: 'Welcome! I\'m your political advisor for the Smart Voting System. I can help you understand:\n\n- Voting procedures\n- Political party information\n- Electoral processes\n- Voter rights and responsibilities\n\nWhat would you like to know about?'
-      }
-    ]);
-  }, []);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [messages]);
+    scrollToBottom();
+  }, [chatState.messages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || chatState.isLoading) return;
 
-    const userMessage = input.trim();
+    // Check message limit
+    if (chatState.messages.length >= MAX_MESSAGES) {
+      setChatState(prev => ({
+        ...prev,
+        error: 'You have reached the maximum number of messages. Please start a new conversation.',
+      }));
+      return;
+    }
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      content: input.trim(),
+      role: 'user',
+      timestamp: new Date(),
+    };
+
+    setChatState(prev => ({
+      ...prev,
+      messages: [...prev.messages, userMessage],
+      isLoading: true,
+      error: null,
+    }));
+
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setIsLoading(true);
 
     try {
-      // Format conversation history for the API
-      const messageHistory = messages.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
+      const response = await generateResponse([...chatState.messages, userMessage]);
+      
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        content: response,
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+
+      setChatState(prev => ({
+        ...prev,
+        messages: [...prev.messages, assistantMessage],
+        isLoading: false,
       }));
-
-      // Add system message with political context
-      const apiMessages = [
-        { role: 'system', content: POLITICAL_CONTEXT },
-        ...messageHistory,
-        { role: 'user', content: userMessage }
-      ];
-
-      // Call API
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: apiMessages,
-          temperature: 0.7,
-          max_tokens: 1000,
-          stream: false
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const botMessage = data.choices[0].message.content;
-
-      setMessages(prev => [...prev, { role: 'bot', content: botMessage }]);
     } catch (error) {
-      console.error('Error getting AI response:', error);
+      setChatState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'An error occurred',
+      }));
+    }
+  };
+
+  const retryLastMessage = async () => {
+    if (chatState.messages.length === 0 || chatState.isLoading) return;
+
+    const lastUserMessage = [...chatState.messages].reverse().find(msg => msg.role === 'user');
+    if (!lastUserMessage) return;
+
+    setChatState(prev => ({
+      ...prev,
+      messages: prev.messages.filter(msg => msg.id !== lastUserMessage.id),
+      isLoading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await generateResponse(chatState.messages.filter(msg => msg.id !== lastUserMessage.id));
       
-      let errorMessage = 'I apologize, but I encountered an error connecting to the AI service. Please try again in a moment.';
-      if (error instanceof Error) {
-        const errorMsg = error.message.toLowerCase();
-        if (errorMsg.includes('api key not valid') || errorMsg.includes('unauthorized')) {
-          errorMessage = 'I apologize, but there seems to be an issue with the API configuration. Please contact support.';
-        } else if (errorMsg.includes('quota') || errorMsg.includes('rate limit')) {
-          errorMessage = 'I apologize, but we\'ve reached our API quota limit. Please try again later.';
-        } else if (errorMsg.includes('not found') || errorMsg.includes('404')) {
-          errorMessage = 'I apologize, but the AI service is temporarily unavailable. Please try again in a few moments.';
-        } else if (errorMsg.includes('blocked') || errorMsg.includes('safety')) {
-          errorMessage = 'I apologize, but I cannot provide information on that topic. Please ask about voting procedures, electoral processes, or general political information.';
-        }
-      }
-      
-      setMessages(prev => [...prev, {
-        role: 'bot',
-        content: errorMessage
-      }]);
-    } finally {
-      setIsLoading(false);
+      const assistantMessage: ChatMessage = {
+        id: Date.now().toString(),
+        content: response,
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+
+      setChatState(prev => ({
+        ...prev,
+        messages: [...prev.messages, lastUserMessage, assistantMessage],
+        isLoading: false,
+      }));
+    } catch (error) {
+      setChatState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'An error occurred',
+      }));
     }
   };
 
   return (
     <div className="flex flex-col h-[600px] bg-white rounded-lg shadow-lg">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="flex items-center space-x-2">
-          <MessageSquare className="h-5 w-5 text-orange-500" />
-          <h2 className="text-lg font-semibold text-gray-800">Political Advisor</h2>
-        </div>
-      </div>
-
-      <div
-        ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4"
-      >
-        {messages.map((message, index) => (
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {chatState.messages.length >= MAX_MESSAGES - 1 && (
+          <div className="flex items-center space-x-2 p-2 bg-yellow-50 rounded-lg">
+            <Info className="w-4 h-4 text-yellow-500" />
+            <p className="text-sm text-yellow-700">
+              You have {MAX_MESSAGES - chatState.messages.length} message(s) remaining.
+            </p>
+          </div>
+        )}
+        {chatState.messages.map((message) => (
           <div
-            key={index}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            key={message.id}
+            className={`flex ${
+              message.role === 'user' ? 'justify-end' : 'justify-start'
+            }`}
           >
             <div
               className={`max-w-[80%] rounded-lg p-3 ${
                 message.role === 'user'
-                  ? 'bg-orange-500 text-white'
+                  ? 'bg-blue-500 text-white'
                   : 'bg-gray-100 text-gray-800'
               }`}
             >
-              <div className="prose prose-sm max-w-none">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
-              </div>
+              {message.content}
             </div>
           </div>
         ))}
-        {isLoading && (
+        {chatState.isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg p-3">
-              <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+              <Loader2 className="w-5 h-5 animate-spin" />
             </div>
           </div>
         )}
+        {chatState.error && (
+          <div className="flex flex-col items-center space-y-2 p-4 bg-red-50 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <p className="text-red-600 text-sm">{chatState.error}</p>
+            <button
+              onClick={retryLastMessage}
+              className="text-sm text-blue-500 hover:text-blue-600"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
       </div>
-
       <form onSubmit={handleSubmit} className="p-4 border-t">
         <div className="flex space-x-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about voting, parties, or election procedures..."
-            className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-            disabled={isLoading}
+            placeholder="Type your message..."
+            className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={chatState.isLoading || chatState.messages.length >= MAX_MESSAGES}
           />
           <button
             type="submit"
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!input.trim() || chatState.isLoading || chatState.messages.length >= MAX_MESSAGES}
+            className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="h-5 w-5" />
+            <Send className="w-5 h-5" />
           </button>
         </div>
       </form>

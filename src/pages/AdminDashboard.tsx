@@ -5,6 +5,7 @@ import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { UserSquare, CheckCircle, XCircle, LogOut, Image as ImageIcon } from 'lucide-react';
 import { CLOUDINARY_CONFIG } from '../config/cloudinary';
+import { VoteStats } from '../components/VoteStats';
 
 const getOptimizedImageUrl = (url: string) => {
   // Extract public ID from Cloudinary URL
@@ -358,6 +359,9 @@ const AdminDashboard = () => {
 
       {/* User Details Modal */}
       {showUserModal && selectedUser && <UserDetailsModal user={selectedUser} />}
+      <div className="lg:col-span-1 px-8 sm:px-32 lg:px-62">
+  <VoteStats />
+</div>
     </div>
   );
 };

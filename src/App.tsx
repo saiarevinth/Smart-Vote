@@ -10,6 +10,7 @@ import LandingPage from './pages/LandingPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
 import { Toaster } from 'react-hot-toast';
+import VerifyOTP from './pages/VerifyOTP';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/verify-otp" element={<VerifyOTP />} />
 
         {/* Protected User Routes */}
         <Route
